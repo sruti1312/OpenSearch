@@ -72,6 +72,7 @@ import org.opensearch.tasks.TaskId;
 import org.opensearch.tasks.TaskInfo;
 import org.opensearch.tasks.TaskResult;
 import org.opensearch.tasks.TaskResultsService;
+import org.opensearch.tasks.TaskStatsType;
 import org.opensearch.test.OpenSearchIntegTestCase;
 import org.opensearch.test.tasks.MockTaskManager;
 import org.opensearch.test.tasks.MockTaskManagerListener;
@@ -423,6 +424,7 @@ public class TasksIT extends OpenSearchIntegTestCase {
             }
             // assert that all task descriptions have non-zero length
             assertThat(taskInfo.getDescription().length(), greaterThan(0));
+            assertEquals(taskInfo.getStatsInfo().get(TaskStatsType.MEMORY.toString()), Long.valueOf(100));
         }
 
     }

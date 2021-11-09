@@ -35,6 +35,7 @@ package org.opensearch.action.search;
 import org.opensearch.search.fetch.ShardFetchSearchRequest;
 import org.opensearch.search.internal.ShardSearchRequest;
 import org.opensearch.tasks.CancellableTask;
+import org.opensearch.tasks.StatCollectorTask;
 import org.opensearch.tasks.TaskId;
 
 import java.util.Map;
@@ -43,7 +44,7 @@ import java.util.Map;
  * Task storing information about a currently running search shard request.
  * See {@link ShardSearchRequest}, {@link ShardFetchSearchRequest}, ...
  */
-public class SearchShardTask extends CancellableTask {
+public class SearchShardTask extends StatCollectorTask {
 
     public SearchShardTask(long id, String type, String action, String description, TaskId parentTaskId, Map<String, String> headers) {
         super(id, type, action, description, parentTaskId, headers);

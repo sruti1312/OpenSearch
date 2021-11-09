@@ -129,6 +129,7 @@ import org.opensearch.search.sort.SortAndFormats;
 import org.opensearch.search.sort.SortBuilder;
 import org.opensearch.search.suggest.Suggest;
 import org.opensearch.search.suggest.completion.CompletionSuggestion;
+import org.opensearch.tasks.TaskStatsType;
 import org.opensearch.threadpool.Scheduler.Cancellable;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.threadpool.ThreadPool.Names;
@@ -834,6 +835,9 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
             // pre process
             queryPhase.preProcess(context);
+
+            // TODO: This is added for testing purposes, need to remove this.
+            task.updateStat(TaskStatsType.MEMORY, 100);
         } catch (Exception e) {
             context.close();
             throw e;
