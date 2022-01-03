@@ -8,6 +8,7 @@
 
 package org.opensearch.tasks;
 
+import java.util.List;
 import java.util.Map;
 
 public class TaskStatsContext {
@@ -17,7 +18,7 @@ public class TaskStatsContext {
     private final String description;
     private final long startTimeNanos;
     private final String parentTaskId;
-    private final Map<String, Long> allStats;
+    private final Map<String, List<TaskResourceStatsUtil>> taskResorceStats;
 
     private TaskStatsContext(
         long taskId,
@@ -26,7 +27,7 @@ public class TaskStatsContext {
         String description,
         long startTimeNanos,
         String parentTaskId,
-        Map<String, Long> allStats
+        Map<String, List<TaskResourceStatsUtil>> taskResorceStats
     ) {
         this.taskId = taskId;
         this.type = type;
@@ -34,7 +35,7 @@ public class TaskStatsContext {
         this.description = description;
         this.startTimeNanos = startTimeNanos;
         this.parentTaskId = parentTaskId;
-        this.allStats = allStats;
+        this.taskResorceStats = taskResorceStats;
     }
 
     public long getTaskId() {
@@ -74,8 +75,8 @@ public class TaskStatsContext {
         return parentTaskId;
     }
 
-    public Map<String, Long> getAllStats() {
-        return allStats;
+    public Map<String, List<TaskResourceStatsUtil>> getTaskResorceStats() {
+        return taskResorceStats;
     }
 
     public static TaskStatsContext createTaskStatsContext(Task task) {
@@ -86,7 +87,7 @@ public class TaskStatsContext {
             task.getDescription(),
             task.getStartTimeNanos(),
             task.getParentTaskId().toString(),
-            task.getTotalResourceStats()
+            task.getResourceStats()
         );
 
     }

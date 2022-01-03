@@ -211,7 +211,7 @@ public class TaskManager implements ClusterStateApplier {
      */
     public Task unregister(Task task) {
         logger.trace("unregister task for id: {}", task.getId());
-        if (!task.getTotalResourceStats().isEmpty()) {
+        if (!task.getResourceStats().isEmpty()) {
             final TaskStatsContext statsContext = TaskStatsContext.createTaskStatsContext(task);
             statsConsumers.forEach(consumer -> consumer.accept(statsContext));
         }

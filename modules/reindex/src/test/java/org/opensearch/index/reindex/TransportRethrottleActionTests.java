@@ -132,7 +132,7 @@ public class TransportRethrottleActionTests extends OpenSearchTestCase {
                     false,
                     new TaskId("test", task.getId()),
                     Collections.emptyMap(),
-                    Collections.emptyMap()
+                    Collections.emptyList()
                 )
             );
             sliceStatuses.add(new BulkByScrollTask.StatusOrException(status));
@@ -169,7 +169,7 @@ public class TransportRethrottleActionTests extends OpenSearchTestCase {
                     false,
                     new TaskId("test", task.getId()),
                     Collections.emptyMap(),
-                    Collections.emptyMap()
+                    Collections.emptyList()
                 )
             );
             sliceStatuses.add(new BulkByScrollTask.StatusOrException(status));

@@ -9,19 +9,37 @@
 package org.opensearch.tasks;
 
 public class TaskResourceMetric {
-    private final TaskStatsType statsType;
-    private final long value;
+    private final TaskStats stats;
+    private final boolean absolute;
+    private long startValue;
+    private long endValue;
 
-    public TaskResourceMetric(TaskStatsType statsType, long value) {
-        this.statsType = statsType;
-        this.value = value;
+    public TaskResourceMetric(TaskStats stats, long value, boolean absolute) {
+        this.stats = stats;
+        this.absolute = absolute;
+        if (absolute) {
+            this.endValue = value;
+        } else {
+            this.startValue = value;
+        }
     }
 
-    public long getValue() {
-        return value;
+    public long getTotalValue() {
+        if (endValue != 0 && endValue > startValue) {
+            return endValue - startValue;
+        }
+        return 0L;
     }
 
-    public TaskStatsType getStatsType() {
-        return statsType;
+    public void setEndValue(long value) {
+        endValue = value;
+    }
+
+    public TaskStats getStats() {
+        return stats;
+    }
+
+    public boolean isAbsolute() {
+        return absolute;
     }
 }

@@ -908,7 +908,7 @@ public class TasksIT extends OpenSearchIntegTestCase {
                     false,
                     TaskId.EMPTY_TASK_ID,
                     Collections.emptyMap(),
-                    Collections.emptyMap()
+                    Collections.emptyList()
                 ),
                 new RuntimeException("test")
             ),

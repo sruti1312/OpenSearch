@@ -29,7 +29,7 @@ public final class SearchFatLogMessage extends OpenSearchLogMessage {
         messageFields.put("start_time_millis", TimeUnit.NANOSECONDS.toMillis(context.getStartTime()));
         messageFields.put("took_millis", TimeUnit.NANOSECONDS.toMillis(context.getRunningTimeNanos()));
         messageFields.put("parentTaskId", context.getParentTaskId());
-        messageFields.put("resource_stats", context.getAllStats());
+        messageFields.put("resource_stats", context.getTaskResorceStats());
         return messageFields;
     }
 
@@ -55,7 +55,7 @@ public final class SearchFatLogMessage extends OpenSearchLogMessage {
             .append(TimeUnit.NANOSECONDS.toMillis(context.getRunningTimeNanos()))
             .append("], ")
             .append("resource_stats[")
-            .append(context.getAllStats())
+            .append(context.getTaskResorceStats())
             .append("], ");
         return sb.toString();
     }

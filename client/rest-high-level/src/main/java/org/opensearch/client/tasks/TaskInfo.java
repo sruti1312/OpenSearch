@@ -35,8 +35,10 @@ import org.opensearch.common.ParseField;
 import org.opensearch.common.xcontent.ObjectParser;
 import org.opensearch.common.xcontent.XContentParser;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -57,7 +59,7 @@ public class TaskInfo {
     private TaskId parentTaskId;
     private final Map<String, Object> status = new HashMap<>();
     private final Map<String, String> headers = new HashMap<>();
-    private final Map<String, Object> statsInfo = new HashMap<>();
+    private final List<Object> resourceStats = new ArrayList<>();
 
     public TaskInfo(TaskId taskId) {
         this.taskId = taskId;
@@ -151,12 +153,12 @@ public class TaskInfo {
         return status;
     }
 
-    public Map<String, Object> getResourceStats() {
-        return statsInfo;
+    void setResourceStats(List<Object> resourceStats) {
+        this.resourceStats.addAll(resourceStats);
     }
 
-    void setStatsInfo(Map<String, Object> statsInfo) {
-        this.statsInfo.putAll(statsInfo);
+    public List<Object> getResourceStats() {
+        return resourceStats;
     }
 
     private void noOpParse(Object s) {}
@@ -179,7 +181,7 @@ public class TaskInfo {
         parser.declareBoolean(TaskInfo::setCancelled, new ParseField("cancelled"));
         parser.declareString(TaskInfo::setParentTaskId, new ParseField("parent_task_id"));
         parser.declareObject(TaskInfo::setHeaders, (p, c) -> p.mapStrings(), new ParseField("headers"));
-        parser.declareObject(TaskInfo::setStatsInfo, (p, c) -> p.map(), new ParseField("resource_stats"));
+        parser.declareObjectArray(TaskInfo::setResourceStats, (p, c) -> p.list(), new ParseField("resource_info"));
         PARSER = (XContentParser p, Void v, String name) -> parser.parse(p, new TaskInfo(new TaskId(name)), null);
     }
 
@@ -248,8 +250,8 @@ public class TaskInfo {
             + status
             + ", headers="
             + headers
-            + ", resource_stats="
-            + statsInfo
+            + ", resource_info="
+            + resourceStats
             + '}';
     }
 }

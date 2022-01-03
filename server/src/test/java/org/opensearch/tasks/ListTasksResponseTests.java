@@ -74,12 +74,12 @@ public class ListTasksResponseTests extends AbstractXContentTestCase<ListTasksRe
             false,
             new TaskId("node1", 0),
             Collections.singletonMap("foo", "bar"),
-            Collections.unmodifiableMap(new HashMap<String, Long>() {
+            Collections.singletonList(new TaskResourceStats("dummy-type1", new HashMap<String, Long>() {
                 {
-                    put(TaskStatsType.MEMORY.toString(), 100L);
-                    put(TaskStatsType.CPU.toString(), 100L);
+                    put(TaskStats.MEMORY.toString(), 100L);
+                    put(TaskStats.CPU.toString(), 100L);
                 }
-            })
+            }))
         );
         ListTasksResponse tasksResponse = new ListTasksResponse(singletonList(info), emptyList(), emptyList());
         assertEquals(
@@ -101,9 +101,12 @@ public class ListTasksResponseTests extends AbstractXContentTestCase<ListTasksRe
                 + "      \"headers\" : {\n"
                 + "        \"foo\" : \"bar\"\n"
                 + "      },\n"
-                + "      \"resource_stats\" : {\n"
-                + "        \"memory\" : 100,\n"
-                + "        \"cpu\" : 100\n"
+                + "      \"resource_info\" : {\n"
+                + "        \"stats_type\" : \"dummy-type1\",\n"
+                + "        \"resource_stats\" : {\n"
+                + "          \"memory_in_bytes\" : 100,\n"
+                + "          \"cpu_time_in_nanos\" : 100\n"
+                + "        }\n"
                 + "      }\n"
                 + "    }\n"
                 + "  ]\n"
@@ -138,8 +141,11 @@ public class ListTasksResponseTests extends AbstractXContentTestCase<ListTasksRe
 
     @Override
     protected Predicate<String> getRandomFieldsExcludeFilter() {
-        // status, headers and resource_stats hold arbitrary content, we can't inject random fields in them
-        return field -> field.endsWith("status") || field.endsWith("headers") || field.endsWith("resource_stats");
+        // status, headers and resource_info hold arbitrary content, we can't inject random fields in them
+        return field -> field.endsWith("status")
+            || field.endsWith("headers")
+            || field.endsWith("resource_info")
+            || field.endsWith("resource_stats");
     }
 
     @Override

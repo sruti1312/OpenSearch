@@ -47,9 +47,7 @@ import org.opensearch.common.xcontent.XContentBuilder;
 import org.opensearch.common.xcontent.XContentParser;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import static org.opensearch.common.xcontent.ConstructingObjectParser.constructorArg;
@@ -86,7 +84,7 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
 
     private final Map<String, String> headers;
 
-    private final Map<String, Long> resourceStats;
+    private final List<TaskResourceStats> resourceStats;
 
     public TaskInfo(
         TaskId taskId,
@@ -100,7 +98,7 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
         boolean cancelled,
         TaskId parentTaskId,
         Map<String, String> headers,
-        Map<String, Long> resourceStats
+        List<TaskResourceStats> resourceStats
     ) {
         if (cancellable == false && cancelled == true) {
             throw new IllegalArgumentException("task cannot be cancelled");
@@ -142,9 +140,9 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
         parentTaskId = TaskId.readFromStream(in);
         headers = in.readMap(StreamInput::readString, StreamInput::readString);
         if (in.getVersion().onOrAfter(Version.V_2_0_0)) {
-            resourceStats = in.readMap(StreamInput::readString, StreamInput::readLong);
+            resourceStats = in.readList(TaskResourceStats::new);
         } else {
-            resourceStats = Collections.emptyMap();
+            resourceStats = Collections.emptyList();
         }
     }
 
@@ -164,7 +162,7 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
         parentTaskId.writeTo(out);
         out.writeMap(headers, StreamOutput::writeString, StreamOutput::writeString);
         if (out.getVersion().onOrAfter(Version.V_2_0_0)) {
-            out.writeMap(resourceStats, StreamOutput::writeString, StreamOutput::writeLong);
+            out.writeList(resourceStats);
         }
     }
 
@@ -241,7 +239,7 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
     /**
      * Returns the task resource information
      */
-    public Map<String, Long> getResourceStats() {
+    public List<TaskResourceStats> getResourceStats() {
         return resourceStats;
     }
 
@@ -272,10 +270,10 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
             builder.field(attribute.getKey(), attribute.getValue());
         }
         builder.endObject();
-        if (resourceStats != null) {
-            builder.startObject("resource_stats");
-            for (Map.Entry<String, Long> attribute : resourceStats.entrySet()) {
-                builder.field(attribute.getKey(), attribute.getValue());
+        if (resourceStats != null && false == resourceStats.isEmpty()) {
+            builder.startObject("resource_info");
+            for (TaskResourceStats resourceStat : resourceStats) {
+                resourceStat.toXContent(builder, params);
             }
             builder.endObject();
         }
@@ -305,10 +303,10 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
             headers = Collections.emptyMap();
         }
         @SuppressWarnings("unchecked")
-        Map<String, Long> resourceStats = (Map<String, Long>) a[i++];
-        if (resourceStats == null) {
+        List<TaskResourceStats> resourceStatsList = (List<TaskResourceStats>) a[i++];
+        if (resourceStatsList == null) {
             // This might happen if we are reading an old version of task info
-            resourceStats = Collections.emptyMap();
+            resourceStatsList = Collections.emptyList();
         }
         RawTaskStatus status = statusBytes == null ? null : new RawTaskStatus(statusBytes);
         TaskId parentTaskId = parentTaskIdString == null ? TaskId.EMPTY_TASK_ID : new TaskId(parentTaskIdString);
@@ -324,7 +322,7 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
             cancelled,
             parentTaskId,
             headers,
-            resourceStats
+            resourceStatsList
         );
     });
     static {
@@ -342,7 +340,7 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
         PARSER.declareBoolean(optionalConstructorArg(), new ParseField("cancelled"));
         PARSER.declareString(optionalConstructorArg(), new ParseField("parent_task_id"));
         PARSER.declareObject(optionalConstructorArg(), (p, c) -> p.mapStrings(), new ParseField("headers"));
-        PARSER.declareObject(optionalConstructorArg(), (p, c) -> p.map(), new ParseField("resource_stats"));
+        PARSER.declareObjectArray(optionalConstructorArg(), TaskResourceStats.PARSER, new ParseField("resource_info"));
     }
 
     @Override

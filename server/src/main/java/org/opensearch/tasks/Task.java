@@ -39,9 +39,15 @@ import org.opensearch.common.xcontent.ToXContent;
 import org.opensearch.common.xcontent.ToXContentObject;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.opensearch.tasks.TaskResourceStatsUtil.TOTAL_RESOURCE_CONSUMPTION;
 
 /**
  * Current task information
@@ -65,9 +71,7 @@ public class Task {
 
     private final Map<String, String> headers;
 
-    private final Map<String, TaskStatsUtil> activeResourceStats;
-
-    private final Map<String, Long> totalResourceStats;
+    private final Map<String, List<TaskResourceStatsUtil>> resourceStats;
 
     /**
      * The task's start time as a wall clock time since epoch ({@link System#currentTimeMillis()} style).
@@ -80,18 +84,7 @@ public class Task {
     private final long startTimeNanos;
 
     public Task(long id, String type, String action, String description, TaskId parentTask, Map<String, String> headers) {
-        this(
-            id,
-            type,
-            action,
-            description,
-            parentTask,
-            System.currentTimeMillis(),
-            System.nanoTime(),
-            headers,
-            new ConcurrentHashMap<>(),
-            new HashMap<>()
-        );
+        this(id, type, action, description, parentTask, System.currentTimeMillis(), System.nanoTime(), headers, new ConcurrentHashMap<>());
     }
 
     public Task(
@@ -103,8 +96,7 @@ public class Task {
         long startTime,
         long startTimeNanos,
         Map<String, String> headers,
-        Map<String, TaskStatsUtil> activeWorkers,
-        Map<String, Long> totalResourceStats
+        Map<String, List<TaskResourceStatsUtil>> resourceStats
     ) {
         this.id = id;
         this.type = type;
@@ -114,8 +106,7 @@ public class Task {
         this.startTime = startTime;
         this.startTimeNanos = startTimeNanos;
         this.headers = headers;
-        this.activeResourceStats = activeWorkers;
-        this.totalResourceStats = totalResourceStats;
+        this.resourceStats = resourceStats;
     }
 
     /**
@@ -152,7 +143,7 @@ public class Task {
             this instanceof CancellableTask && ((CancellableTask) this).isCancelled(),
             parentTask,
             headers,
-            totalResourceStats
+            getTotalResourceStats()
         );
     }
 
@@ -218,43 +209,54 @@ public class Task {
     /**
      * Returns resource consumption of active workers of the task
      */
-    public Map<String, TaskStatsUtil> getActiveResourceStats() {
-        return activeResourceStats;
+    public Map<String, List<TaskResourceStatsUtil>> getResourceStats() {
+        return resourceStats;
     }
 
-    /**
-     * Returns total resource consumption of the task
-     */
-    public Map<String, Long> getTotalResourceStats() {
-        return totalResourceStats;
+    public List<TaskResourceStats> getTotalResourceStats() {
+        return new ArrayList<TaskResourceStats>() {
+            {
+                add(new TaskResourceStats(TOTAL_RESOURCE_CONSUMPTION, new HashMap<String, Long>() {
+                    {
+                        Arrays.stream(TaskStats.values()).forEach(v -> put(v.toString(), getTotalResourceUtilization(v)));
+                    }
+                }));
+            }
+        };
     }
 
-    public void addOrUpdateResourceStats(
-        String workerName,
-        Thread.State threadState,
-        boolean isComplete,
+    public long getTotalResourceUtilization(TaskStats taskStats) {
+        AtomicLong totalResourceConsumption = new AtomicLong();
+        resourceStats.forEach((thread, taskResourceStatsUtil) -> {
+            for (TaskResourceStatsUtil statsUtil : taskResourceStatsUtil) {
+                statsUtil.getResourceUtil().forEach((statsType, statsHelper) -> {
+                    if (!statsType.isOnlyForAnalysis()) {
+                        totalResourceConsumption.addAndGet(statsHelper.getStatsInfo().get(taskStats).getTotalValue());
+                    }
+                });
+            }
+        });
+        return totalResourceConsumption.get();
+    }
+
+    public void addOrUpdateTaskResourceStats(
+        String threadId,
+        boolean isActive,
+        TaskStatsType statsType,
         TaskResourceMetric... taskResourceMetrics
     ) {
-        TaskStatsUtil taskStatsUtil = activeResourceStats.get(workerName);
-        if (taskStatsUtil == null) {
-            taskStatsUtil = new TaskStatsUtil(threadState, taskResourceMetrics);
-            activeResourceStats.put(workerName, taskStatsUtil);
+        List<TaskResourceStatsUtil> taskStatsUtilList = resourceStats.getOrDefault(threadId, new ArrayList<>());
+        if (taskStatsUtilList.isEmpty()) {
+            taskStatsUtilList.add(new TaskResourceStatsUtil(isActive, statsType, taskResourceMetrics));
+            resourceStats.put(threadId, taskStatsUtilList);
         } else {
-            taskStatsUtil.setThreadState(threadState);
-            for (TaskResourceMetric taskResourceMetric : taskResourceMetrics) {
-                taskStatsUtil.updateStatsInfo(taskResourceMetric.getStatsType(), taskResourceMetric.getValue());
+            for (TaskResourceStatsUtil taskStatsUtil : taskStatsUtilList) {
+                if (taskStatsUtil.isActive()) {
+                    taskStatsUtil.update(isActive, statsType, taskResourceMetrics);
+                    return;
+                }
             }
-        }
-        if (isComplete) {
-            // update total resource consumption before removing from active workers list
-            taskStatsUtil.getStatsInfo()
-                .forEach(
-                    (statsType, statsInfo) -> totalResourceStats.put(
-                        statsType.toString(),
-                        totalResourceStats.getOrDefault(statsType.toString(), 0L) + statsInfo.getTotalValue()
-                    )
-                );
-            activeResourceStats.remove(workerName);
+            taskStatsUtilList.add(new TaskResourceStatsUtil(isActive, statsType, taskResourceMetrics));
         }
     }
 

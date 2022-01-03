@@ -69,8 +69,11 @@ public class CancelTasksResponseTests extends AbstractXContentTestCase<CancelTas
 
     @Override
     protected Predicate<String> getRandomFieldsExcludeFilter() {
-        // status, headers and resource_stats hold arbitrary content, we can't inject random fields in them
-        return field -> field.endsWith("status") || field.endsWith("headers") || field.endsWith("resource_stats");
+        // status, headers, resource_stats and resource_info hold arbitrary content, we can't inject random fields in them
+        return field -> field.endsWith("status")
+            || field.endsWith("headers")
+            || field.endsWith("resource_stats")
+            || field.endsWith("resource_info");
     }
 
     @Override

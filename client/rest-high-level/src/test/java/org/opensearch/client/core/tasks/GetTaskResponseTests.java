@@ -38,15 +38,18 @@ import org.opensearch.common.bytes.BytesReference;
 import org.opensearch.common.xcontent.ToXContent;
 import org.opensearch.common.xcontent.XContentBuilder;
 import org.opensearch.tasks.RawTaskStatus;
+import org.opensearch.tasks.TaskResourceStats;
 import org.opensearch.tasks.Task;
 import org.opensearch.tasks.TaskId;
 import org.opensearch.tasks.TaskInfo;
-import org.opensearch.tasks.TaskStatsType;
+import org.opensearch.tasks.TaskStats;
 import org.opensearch.test.OpenSearchTestCase;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.opensearch.test.AbstractXContentTestCase.xContentTester;
@@ -59,7 +62,12 @@ public class GetTaskResponseTests extends OpenSearchTestCase {
         )
             .assertEqualsConsumer(this::assertEqualInstances)
             .assertToXContentEquivalence(true)
-            .randomFieldsExcludeFilter(field -> field.endsWith("headers") || field.endsWith("status") || field.endsWith("resource_stats"))
+            .randomFieldsExcludeFilter(
+                field -> field.endsWith("headers")
+                    || field.endsWith("status")
+                    || field.endsWith("resource_info")
+                    || field.endsWith("resource_stats")
+            )
             .test();
     }
 
@@ -89,18 +97,22 @@ public class GetTaskResponseTests extends OpenSearchTestCase {
         String action = randomAlphaOfLength(5);
         Task.Status status = randomBoolean() ? randomRawTaskStatus() : null;
         String description = randomBoolean() ? randomAlphaOfLength(5) : null;
-        long startTime = randomLong();
-        long runningTimeNanos = randomLong();
+        long startTime = randomNonNegativeLong();
+        long runningTimeNanos = randomNonNegativeLong();
         boolean cancellable = randomBoolean();
         boolean cancelled = cancellable == true ? randomBoolean() : false;
         TaskId parentTaskId = randomBoolean() ? TaskId.EMPTY_TASK_ID : randomTaskId();
         Map<String, String> headers = randomBoolean()
             ? Collections.emptyMap()
             : Collections.singletonMap(randomAlphaOfLength(5), randomAlphaOfLength(5));
-        Map<String, Long> statsInfo = randomBoolean() ? Collections.emptyMap() : Collections.unmodifiableMap(new HashMap<String, Long>() {
+        List<TaskResourceStats> resourceStatsList = Collections.unmodifiableList(new ArrayList<TaskResourceStats>() {
             {
-                put(TaskStatsType.MEMORY.toString(), randomLong());
-                put(TaskStatsType.CPU.toString(), randomLong());
+                add(new TaskResourceStats("dummy-type1", new HashMap<String, Long>() {
+                    {
+                        put(TaskStats.MEMORY.toString(), randomNonNegativeLong());
+                        put(TaskStats.CPU.toString(), randomNonNegativeLong());
+                    }
+                }));
             }
         });
         return new TaskInfo(
@@ -115,7 +127,7 @@ public class GetTaskResponseTests extends OpenSearchTestCase {
             cancelled,
             parentTaskId,
             headers,
-            statsInfo
+            resourceStatsList
         );
     }
 
