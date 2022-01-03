@@ -39,7 +39,10 @@ import org.opensearch.common.xcontent.ToXContent;
 import org.opensearch.common.xcontent.ToXContentObject;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -53,6 +56,8 @@ public class Task {
      */
     public static final String X_OPAQUE_ID = "X-Opaque-Id";
 
+    public static final String TOTAL_RESOURCE_CONSUMPTION = "total_resource_consumption";
+
     private final long id;
 
     private final String type;
@@ -65,9 +70,7 @@ public class Task {
 
     private final Map<String, String> headers;
 
-    private final Map<String, TaskStatsUtil> activeResourceStats;
-
-    private final Map<String, Long> totalResourceStats;
+    private final Map<String, List<TaskCompleteResourceInfo>> resourceStats;
 
     /**
      * The task's start time as a wall clock time since epoch ({@link System#currentTimeMillis()} style).
@@ -80,18 +83,7 @@ public class Task {
     private final long startTimeNanos;
 
     public Task(long id, String type, String action, String description, TaskId parentTask, Map<String, String> headers) {
-        this(
-            id,
-            type,
-            action,
-            description,
-            parentTask,
-            System.currentTimeMillis(),
-            System.nanoTime(),
-            headers,
-            new ConcurrentHashMap<>(),
-            new HashMap<>()
-        );
+        this(id, type, action, description, parentTask, System.currentTimeMillis(), System.nanoTime(), headers, new ConcurrentHashMap<>());
     }
 
     public Task(
@@ -103,8 +95,7 @@ public class Task {
         long startTime,
         long startTimeNanos,
         Map<String, String> headers,
-        Map<String, TaskStatsUtil> activeWorkers,
-        Map<String, Long> totalResourceStats
+        Map<String, List<TaskCompleteResourceInfo>> resourceStats
     ) {
         this.id = id;
         this.type = type;
@@ -114,8 +105,7 @@ public class Task {
         this.startTime = startTime;
         this.startTimeNanos = startTimeNanos;
         this.headers = headers;
-        this.activeResourceStats = activeWorkers;
-        this.totalResourceStats = totalResourceStats;
+        this.resourceStats = resourceStats;
     }
 
     /**
@@ -125,21 +115,26 @@ public class Task {
      * @param localNodeId the id of the node this task is running on
      * @param detailed    should the information include detailed, potentially slow to
      *                    generate data?
+     * @param includeStats should the information include task resource stats
      */
-    public final TaskInfo taskInfo(String localNodeId, boolean detailed) {
+    public final TaskInfo taskInfo(String localNodeId, boolean detailed, boolean includeStats) {
         String description = null;
         Task.Status status = null;
+        Map<String, Map<String, Long>> resourceStats = null;
         if (detailed) {
             description = getDescription();
             status = getStatus();
         }
-        return taskInfo(localNodeId, description, status);
+        if (includeStats) {
+            resourceStats = getTotalResourceStats();
+        }
+        return taskInfo(localNodeId, description, status, resourceStats);
     }
 
     /**
      * Build a proper {@link TaskInfo} for this task.
      */
-    protected final TaskInfo taskInfo(String localNodeId, String description, Status status) {
+    protected final TaskInfo taskInfo(String localNodeId, String description, Status status, Map<String, Map<String, Long>> resourceStats) {
         return new TaskInfo(
             new TaskId(localNodeId, getId()),
             getType(),
@@ -152,7 +147,7 @@ public class Task {
             this instanceof CancellableTask && ((CancellableTask) this).isCancelled(),
             parentTask,
             headers,
-            totalResourceStats
+            resourceStats
         );
     }
 
@@ -216,45 +211,56 @@ public class Task {
     }
 
     /**
-     * Returns resource consumption of active workers of the task
+     * Returns resource consumption of the task
      */
-    public Map<String, TaskStatsUtil> getActiveResourceStats() {
-        return activeResourceStats;
+    public Map<String, List<TaskCompleteResourceInfo>> getResourceStats() {
+        return resourceStats;
     }
 
-    /**
-     * Returns total resource consumption of the task
-     */
-    public Map<String, Long> getTotalResourceStats() {
-        return totalResourceStats;
+    public Map<String, Map<String, Long>> getTotalResourceStats() {
+        return new HashMap<String, Map<String, Long>>() {
+            {
+                put(TOTAL_RESOURCE_CONSUMPTION, new HashMap<String, Long>() {
+                    {
+                        Arrays.stream(TaskStats.values()).forEach(v -> put(v.toString(), getTotalResourceUtilization(v)));
+                    }
+                });
+            }
+        };
     }
 
-    public void addOrUpdateResourceStats(
-        String workerName,
-        Thread.State threadState,
-        boolean isComplete,
-        TaskResourceMetric... taskResourceMetrics
-    ) {
-        TaskStatsUtil taskStatsUtil = activeResourceStats.get(workerName);
-        if (taskStatsUtil == null) {
-            taskStatsUtil = new TaskStatsUtil(threadState, taskResourceMetrics);
-            activeResourceStats.put(workerName, taskStatsUtil);
-        } else {
-            taskStatsUtil.setThreadState(threadState);
-            for (TaskResourceMetric taskResourceMetric : taskResourceMetrics) {
-                taskStatsUtil.updateStatsInfo(taskResourceMetric.getStatsType(), taskResourceMetric.getValue());
+    public long getTotalResourceUtilization(TaskStats taskStats) {
+        long totalResourceConsumption = 0L;
+        for (List<TaskCompleteResourceInfo> resourceInfoList : resourceStats.values()) {
+            for (TaskCompleteResourceInfo resourceInfo : resourceInfoList) {
+                for (Map.Entry<TaskStatsType, TaskResourceInfo> entry : resourceInfo.getResourceInfo().entrySet()) {
+                    if (!entry.getKey().isOnlyForAnalysis()) {
+                        totalResourceConsumption += entry.getValue().getStatsInfo().get(taskStats).getTotalValue();
+                    }
+                }
             }
         }
-        if (isComplete) {
-            // update total resource consumption before removing from active workers list
-            taskStatsUtil.getStatsInfo()
-                .forEach(
-                    (statsType, statsInfo) -> totalResourceStats.put(
-                        statsType.toString(),
-                        totalResourceStats.getOrDefault(statsType.toString(), 0L) + statsInfo.getTotalValue()
-                    )
-                );
-            activeResourceStats.remove(workerName);
+        return totalResourceConsumption;
+    }
+
+    public void addOrUpdateTaskResourceStats(
+        String threadId,
+        boolean isActive,
+        TaskStatsType statsType,
+        TaskStatsInfo... taskResourceMetrics
+    ) {
+        List<TaskCompleteResourceInfo> taskStatsUtilList = resourceStats.getOrDefault(threadId, new ArrayList<>());
+        if (taskStatsUtilList.isEmpty()) {
+            taskStatsUtilList.add(new TaskCompleteResourceInfo(isActive, statsType, taskResourceMetrics));
+            resourceStats.put(threadId, taskStatsUtilList);
+        } else {
+            for (TaskCompleteResourceInfo taskStatsUtil : taskStatsUtilList) {
+                if (taskStatsUtil.isActive()) {
+                    taskStatsUtil.update(isActive, statsType, taskResourceMetrics);
+                    return;
+                }
+            }
+            taskStatsUtilList.add(new TaskCompleteResourceInfo(isActive, statsType, taskResourceMetrics));
         }
     }
 
@@ -280,12 +286,12 @@ public class Task {
     }
 
     public TaskResult result(DiscoveryNode node, Exception error) throws IOException {
-        return new TaskResult(taskInfo(node.getId(), true), error);
+        return new TaskResult(taskInfo(node.getId(), true, false), error);
     }
 
     public TaskResult result(DiscoveryNode node, ActionResponse response) throws IOException {
         if (response instanceof ToXContent) {
-            return new TaskResult(taskInfo(node.getId(), true), (ToXContent) response);
+            return new TaskResult(taskInfo(node.getId(), true, false), (ToXContent) response);
         } else {
             throw new IllegalStateException("response has to implement ToXContent to be able to store the results");
         }

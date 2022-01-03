@@ -57,7 +57,6 @@ import org.opensearch.common.util.concurrent.AbstractRunnable;
 import org.opensearch.common.util.concurrent.ConcurrentCollections;
 import org.opensearch.common.util.concurrent.ConcurrentMapLong;
 import org.opensearch.common.util.concurrent.ThreadContext;
-import org.opensearch.tasks.consumer.TaskSearchStatsLogger;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.TcpChannel;
 
@@ -75,7 +74,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -111,13 +109,6 @@ public class TaskManager implements ClusterStateApplier {
     private final ByteSizeValue maxHeaderSize;
     private final Map<TcpChannel, ChannelPendingTaskTracker> channelPendingTaskTrackers = ConcurrentCollections.newConcurrentMap();
     private final SetOnce<TaskCancellationService> cancellationService = new SetOnce<>();
-
-    /** Consumers that are notified of the stats */
-    private final List<Consumer<TaskStatsContext>> statsConsumers = new ArrayList<Consumer<TaskStatsContext>>() {
-        {
-            add(new TaskSearchStatsLogger());
-        }
-    };
 
     public TaskManager(Settings settings, ThreadPool threadPool, Set<String> taskHeaders) {
         this.threadPool = threadPool;
@@ -211,10 +202,6 @@ public class TaskManager implements ClusterStateApplier {
      */
     public Task unregister(Task task) {
         logger.trace("unregister task for id: {}", task.getId());
-        if (!task.getTotalResourceStats().isEmpty()) {
-            final TaskStatsContext statsContext = TaskStatsContext.createTaskStatsContext(task);
-            statsConsumers.forEach(consumer -> consumer.accept(statsContext));
-        }
         if (task instanceof CancellableTask) {
             CancellableTaskHolder holder = cancellableTasks.remove(task.getId());
             if (holder != null) {
