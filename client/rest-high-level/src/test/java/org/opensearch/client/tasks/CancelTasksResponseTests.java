@@ -47,6 +47,7 @@ import org.opensearch.common.xcontent.XContentType;
 import org.opensearch.tasks.Task;
 import org.opensearch.tasks.TaskId;
 import org.opensearch.tasks.TaskInfo;
+import org.opensearch.tasks.TaskStats;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -96,7 +97,17 @@ public class CancelTasksResponseTests extends AbstractResponseTestCase<
                     cancellable,
                     cancelled,
                     new TaskId("node1", randomLong()),
-                    Collections.singletonMap("x-header-of", "some-value")
+                    Collections.singletonMap("x-header-of", "some-value"),
+                    new HashMap<String, Map<String, Long>>() {
+                        {
+                            put(randomAlphaOfLength(5), new HashMap<String, Long>() {
+                                {
+                                    put(TaskStats.MEMORY.toString(), randomNonNegativeLong());
+                                    put(TaskStats.CPU.toString(), randomNonNegativeLong());
+                                }
+                            });
+                        }
+                    }
                 )
             );
         }
@@ -137,6 +148,7 @@ public class CancelTasksResponseTests extends AbstractResponseTestCase<
             FakeTaskStatus status = (FakeTaskStatus) ti.getStatus();
             assertEquals(status.code, taskInfo.getStatus().get("code"));
             assertEquals(status.status, taskInfo.getStatus().get("status"));
+            assertEquals(ti.getResourceStats(), taskInfo.getResourceStats());
 
         }
 
