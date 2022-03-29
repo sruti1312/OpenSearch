@@ -67,6 +67,7 @@ public class ClusterHealthResponse extends ActionResponse implements StatusToXCo
     private static final String NUMBER_OF_NODES = "number_of_nodes";
     private static final String NUMBER_OF_DATA_NODES = "number_of_data_nodes";
     private static final String DISCOVERED_MASTER = "discovered_master";
+    private static final String DISCOVERED_CLUSTER_MANAGER = "discovered_cluster_manager";
     private static final String NUMBER_OF_PENDING_TASKS = "number_of_pending_tasks";
     private static final String NUMBER_OF_IN_FLIGHT_FETCH = "number_of_in_flight_fetch";
     private static final String DELAYED_UNASSIGNED_SHARDS = "delayed_unassigned_shards";
@@ -89,7 +90,7 @@ public class ClusterHealthResponse extends ActionResponse implements StatusToXCo
             // ClusterStateHealth fields
             int numberOfNodes = (int) parsedObjects[i++];
             int numberOfDataNodes = (int) parsedObjects[i++];
-            boolean hasDiscoveredMaster = (boolean) parsedObjects[i++];
+            boolean hasDiscoveredMaster = Boolean.TRUE.equals(parsedObjects[i++]);
             int activeShards = (int) parsedObjects[i++];
             int relocatingShards = (int) parsedObjects[i++];
             int activePrimaryShards = (int) parsedObjects[i++];
@@ -150,7 +151,7 @@ public class ClusterHealthResponse extends ActionResponse implements StatusToXCo
         // ClusterStateHealth fields
         PARSER.declareInt(constructorArg(), new ParseField(NUMBER_OF_NODES));
         PARSER.declareInt(constructorArg(), new ParseField(NUMBER_OF_DATA_NODES));
-        PARSER.declareBoolean(constructorArg(), new ParseField(DISCOVERED_MASTER));
+        PARSER.declareBoolean(optionalConstructorArg(), new ParseField(DISCOVERED_MASTER));
         PARSER.declareInt(constructorArg(), new ParseField(ACTIVE_SHARDS));
         PARSER.declareInt(constructorArg(), new ParseField(RELOCATING_SHARDS));
         PARSER.declareInt(constructorArg(), new ParseField(ACTIVE_PRIMARY_SHARDS));
@@ -376,7 +377,8 @@ public class ClusterHealthResponse extends ActionResponse implements StatusToXCo
         builder.field(TIMED_OUT, isTimedOut());
         builder.field(NUMBER_OF_NODES, getNumberOfNodes());
         builder.field(NUMBER_OF_DATA_NODES, getNumberOfDataNodes());
-        builder.field(DISCOVERED_MASTER, hasDiscoveredMaster());
+        builder.field(DISCOVERED_MASTER, hasDiscoveredMaster());  // the field will be removed in a future major version
+        builder.field(DISCOVERED_CLUSTER_MANAGER, hasDiscoveredMaster());
         builder.field(ACTIVE_PRIMARY_SHARDS, getActivePrimaryShards());
         builder.field(ACTIVE_SHARDS, getActiveShards());
         builder.field(RELOCATING_SHARDS, getRelocatingShards());
