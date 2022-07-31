@@ -11,18 +11,25 @@ package org.opensearch.tasks.consumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.action.search.SearchShardTask;
-import org.opensearch.action.search.SearchTask;
 import org.opensearch.common.collect.Tuple;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
+import org.opensearch.common.util.concurrent.OpenSearchExecutors;
 import org.opensearch.tasks.ResourceStats;
 import org.opensearch.tasks.Task;
 
+import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.PriorityQueue;
+import java.util.List;
 import java.util.Queue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -51,16 +58,28 @@ public class TopNSearchTasksLogger implements Consumer<Task> {
         Setting.Property.NodeScope
     );
 
+    private final ScheduledExecutorService logExecutor = Executors.newSingleThreadScheduledExecutor(
+        OpenSearchExecutors.daemonThreadFactory("topNlogger")
+    );
     private final int topQueriesSize;
-    private final long topQueriesLogFrequencyInNanos;
-    private final Queue<Tuple<Long, Task>> topQueries;
-    private long lastReportedTimeInNanos = System.nanoTime();
+    private final PriorityBlockingQueue<Tuple<Long, Task>> topQueries1;
+    private final PriorityBlockingQueue<Tuple<Long, Task>> topQueries2;
+
+    private final AtomicReference<Queue<Tuple<Long, Task>>> activeQueue = new AtomicReference<>();
 
     public TopNSearchTasksLogger(Settings settings) {
         this.topQueriesSize = LOG_TOP_QUERIES_SIZE_SETTING.get(settings);
-        this.topQueriesLogFrequencyInNanos = LOG_TOP_QUERIES_FREQUENCY_SETTING.get(settings).getNanos();
-        this.topQueries = new PriorityQueue<>(topQueriesSize, Comparator.comparingLong(Tuple::v1));
+        this.topQueries1 = new PriorityBlockingQueue<>(topQueriesSize, Comparator.comparingLong(Tuple::v1));
+        this.topQueries2 = new PriorityBlockingQueue<>(topQueriesSize, Comparator.comparingLong(Tuple::v1));
         Loggers.setLevel(SEARCH_TASK_DETAILS_LOGGER, "info");
+        activeQueue.set(topQueries1);
+
+        ScheduledFuture<?> scheduledFuture = logExecutor.scheduleAtFixedRate(
+            this::publishTopNEvents,
+            TimeValue.timeValueSeconds(60L).getNanos(),
+            LOG_TOP_QUERIES_FREQUENCY_SETTING.get(settings).getNanos(),
+            TimeUnit.NANOSECONDS
+        );
     }
 
     /**
@@ -68,30 +87,41 @@ public class TopNSearchTasksLogger implements Consumer<Task> {
      */
     @Override
     public void accept(Task task) {
-        if (task instanceof SearchShardTask | task instanceof SearchTask) {
+        if (task instanceof SearchShardTask) {
             recordSearchTask(task);
         }
     }
 
-    private synchronized void recordSearchTask(final Task searchTask) {
+    private void recordSearchTask(Task searchTask) {
         final long memory_in_bytes = searchTask.getTotalResourceUtilization(ResourceStats.MEMORY);
-        if (System.nanoTime() - lastReportedTimeInNanos >= topQueriesLogFrequencyInNanos) {
-            logTopResourceConsumingQueries();
-            lastReportedTimeInNanos = System.nanoTime();
-        }
-        if (topQueries.size() >= topQueriesSize && topQueries.peek().v1() < memory_in_bytes) {
-            // evict the element
-            topQueries.poll();
-        }
-        if (topQueries.size() < topQueriesSize) {
-            topQueries.offer(new Tuple<>(memory_in_bytes, searchTask));
+        synchronized (activeQueue) {
+            Queue<Tuple<Long, Task>> currentActiveQueue = activeQueue.get();
+            if (currentActiveQueue.size() >= topQueriesSize) {
+                if (currentActiveQueue.peek() != null && currentActiveQueue.peek().v1() < memory_in_bytes) {
+                    // evict the element
+                    currentActiveQueue.poll();
+                }
+            }
+            if (currentActiveQueue.size() < topQueriesSize) {
+                currentActiveQueue.offer(new Tuple<>(memory_in_bytes, searchTask));
+            }
         }
     }
 
-    private void logTopResourceConsumingQueries() {
-        for (Tuple<Long, Task> topQuery : topQueries) {
+    private void publishTopNEvents() {
+        List<Tuple<Long, Task>> elementsToLog = new ArrayList<>();
+        if (activeQueue.compareAndSet(topQueries1, topQueries2)) {
+            topQueries1.drainTo(elementsToLog);
+            logTopResourceConsumingQueries(elementsToLog);
+        } else if (activeQueue.compareAndSet(topQueries2, topQueries1)) {
+            topQueries2.drainTo(elementsToLog);
+            logTopResourceConsumingQueries(elementsToLog);
+        }
+    }
+
+    private void logTopResourceConsumingQueries(List<Tuple<Long, Task>> logTasks) {
+        for (Tuple<Long, Task> topQuery : logTasks) {
             SEARCH_TASK_DETAILS_LOGGER.info(new TaskDetailsLogMessage(topQuery.v2()));
         }
-        topQueries.clear();
     }
 }

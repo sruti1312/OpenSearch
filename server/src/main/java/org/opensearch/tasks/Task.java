@@ -244,6 +244,8 @@ public class Task {
      * Returns thread level resource consumption of the task
      */
     public Map<Long, List<ThreadResourceInfo>> getResourceStats() {
+        startThreadResourceTracking(100, ResourceStatsType.WORKER_STATS, new ResourceUsageMetric(ResourceStats.MEMORY, 100L));
+        stopThreadResourceTracking(100, ResourceStatsType.WORKER_STATS, new ResourceUsageMetric(ResourceStats.MEMORY, 1000L));
         return Collections.unmodifiableMap(resourceStats);
     }
 

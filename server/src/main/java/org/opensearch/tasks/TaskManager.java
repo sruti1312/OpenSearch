@@ -50,6 +50,7 @@ import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
+import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.ByteSizeValue;
@@ -90,16 +91,16 @@ public class TaskManager implements ClusterStateApplier {
 
     private static final Logger logger = LogManager.getLogger(TaskManager.class);
 
-    private static final TimeValue WAIT_FOR_COMPLETION_POLL = timeValueMillis(100);
+    public static final String TASK_RESOURCE_CONSUMERS_ATTRIBUTES = "cluster.task.resource_consumers";
 
-    private static final String TASK_RESOURCE_CONSUMERS_ATTRIBUTES = "cluster.task.consumers";
-
-    private static final Setting<Boolean> TASK_RESOURCE_CONSUMERS_SETTING = Setting.boolSetting(
+    public static final Setting<Boolean> TASK_RESOURCE_CONSUMERS_SETTING = Setting.boolSetting(
         TASK_RESOURCE_CONSUMERS_ATTRIBUTES,
         true,
         Setting.Property.Dynamic,
         Setting.Property.NodeScope
     );
+
+    private static final TimeValue WAIT_FOR_COMPLETION_POLL = timeValueMillis(100);
 
     /** Rest headers that are copied to the task */
     private final List<String> taskHeaders;
@@ -122,11 +123,16 @@ public class TaskManager implements ClusterStateApplier {
     private final Map<TcpChannel, ChannelPendingTaskTracker> channelPendingTaskTrackers = ConcurrentCollections.newConcurrentMap();
     private final SetOnce<TaskCancellationService> cancellationService = new SetOnce<>();
 
-    private final boolean taskResourceConsumersEnabled;
+    private boolean taskResourceConsumersEnabled;
     /** Consumers that are notified of the resource stats */
     private final List<Consumer<Task>> taskResourceConsumer;
 
+    // TODO: Remove this method
     public TaskManager(Settings settings, ThreadPool threadPool, Set<String> taskHeaders) {
+        this(settings, null, threadPool, taskHeaders);
+    }
+
+    public TaskManager(Settings settings, ClusterSettings clusterSettings, ThreadPool threadPool, Set<String> taskHeaders) {
         this.threadPool = threadPool;
         this.taskHeaders = new ArrayList<>(taskHeaders);
         this.maxHeaderSize = SETTING_HTTP_MAX_HEADER_SIZE.get(settings);
@@ -136,6 +142,14 @@ public class TaskManager implements ClusterStateApplier {
                 add(new TopNSearchTasksLogger(settings));
             }
         };
+
+        if (clusterSettings != null) {
+            clusterSettings.addSettingsUpdateConsumer(TASK_RESOURCE_CONSUMERS_SETTING, this::setTaskResourceConsumersEnabled);
+        }
+    }
+
+    public void setTaskResourceConsumersEnabled(boolean taskResourceConsumersEnabled) {
+        this.taskResourceConsumersEnabled = taskResourceConsumersEnabled;
     }
 
     public void setTaskResultsService(TaskResultsService taskResultsService) {
