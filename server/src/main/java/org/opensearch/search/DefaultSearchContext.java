@@ -222,6 +222,7 @@ final class DefaultSearchContext extends SearchContext {
     private final int cardinalityAggregationPruningThreshold;
     private final int bucketSelectionStrategyFactor;
     private final boolean keywordIndexOrDocValuesEnabled;
+    private final boolean prefetchDocsForFetchPhaseEnabled;
 
     private boolean isStreamSearch;
     private StreamSearchChannelListener listener;
@@ -291,6 +292,7 @@ final class DefaultSearchContext extends SearchContext {
         this.concurrentSearchDeciderFactories = concurrentSearchDeciderFactories;
         this.keywordIndexOrDocValuesEnabled = evaluateKeywordIndexOrDocValuesEnabled();
         this.isStreamSearch = isStreamSearch;
+        this.prefetchDocsForFetchPhaseEnabled = evaluatePrefetchDocsEnabled();
     }
 
     DefaultSearchContext(
@@ -765,6 +767,11 @@ final class DefaultSearchContext extends SearchContext {
     public SearchContext collapse(CollapseContext collapse) {
         this.collapse = collapse;
         return this;
+    }
+
+    @Override
+    public boolean isPrefetchDocsEnabled() {
+        return prefetchDocsForFetchPhaseEnabled;
     }
 
     @Override
@@ -1267,6 +1274,13 @@ final class DefaultSearchContext extends SearchContext {
             return clusterService.getClusterSettings().get(KEYWORD_INDEX_OR_DOC_VALUES_ENABLED);
         }
         return false;
+    }
+
+    private boolean evaluatePrefetchDocsEnabled() {
+        if (indexService != null && indexService.getIndexSettings() != null) {
+            return indexService.getIndexSettings().isPrefetchDocsEnabled();
+        }
+        return true;
     }
 
     public void setStreamChannelListener(StreamSearchChannelListener listener) {

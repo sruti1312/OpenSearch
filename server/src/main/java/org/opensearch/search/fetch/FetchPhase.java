@@ -34,8 +34,11 @@ package org.opensearch.search.fetch;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.lucene.index.FilterLeafReader;
+import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.ReaderUtil;
+import org.apache.lucene.index.SegmentReader;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TotalHits;
@@ -76,6 +79,7 @@ import org.opensearch.search.profile.fetch.FetchProfiler;
 import org.opensearch.search.profile.fetch.FetchTimingType;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -173,8 +177,57 @@ public class FetchPhase {
 
         int currentReaderIndex = -1;
         LeafReaderContext currentReaderContext = null;
+        boolean hasSequentialDocs = hasSequentialDocs(docs) && docs.length >= 10;
+
+        // Prefetch blocks containing the first N documents to ensure these blocks are loaded in advance.
+        // For most queries, which fetch up to 1000 docs, this improves cold-start latency
+        // without evicting useful cached blocks.
+        int prefetchDocsThreshold = 1000;
+        int numberOfDocsToPrefetch = Math.min(docs.length, prefetchDocsThreshold);
+
+        Instant startTime = Instant.now();
+        if (context.isPrefetchDocsEnabled()) {
+            // skipping prefetch for scroll queries
+            if (context.scrollContext() == null) {
+                for (int index = 0; index < numberOfDocsToPrefetch; index++) {
+                    if (context.isCancelled()) {
+                        throw new TaskCancelledException("cancelled task with reason: " + context.getTask().getReasonCancelled());
+                    }
+                    try {
+                        int docId = docs[index].docId;
+                        int readerIndex = ReaderUtil.subIndex(docId, context.searcher().getIndexReader().leaves());
+                        if (currentReaderIndex != readerIndex) {
+                            currentReaderContext = context.searcher().getIndexReader().leaves().get(readerIndex);
+                        }
+                        int relativeDocId = docId - currentReaderContext.docBase;
+                        int rootId = findRootDocumentIfNested(context, currentReaderContext, relativeDocId);
+                        // skipping prefetch for nested docs as it needs additional processing like
+                        // loading the document source and filtering it based on the nested document ID
+                        if (rootId == -1) {
+                            // for sequential docs within the same segment we only prefetch the first doc
+                            if (currentReaderContext.reader() instanceof SequentialStoredFieldsLeafReader lf && hasSequentialDocs) {
+                                if (currentReaderIndex != readerIndex) {
+                                    // lf.getSequentialStoredFieldsReader().prefetch(relativeDocId);
+                                }
+                            } else {
+                                LeafReader leafReader = FilterLeafReader.unwrap(currentReaderContext.reader());
+                                if (leafReader instanceof SegmentReader segmentReader) {
+                                    // segmentReader.getFieldsReader().prefetch(relativeDocId);
+                                }
+                            }
+                        }
+                        currentReaderIndex = readerIndex;
+                    } catch (Exception e) {
+                        LOGGER.warn("Failed to prefetch the doc, will continue to prefetch the other docs", e);
+                    }
+                }
+            }
+        }
+        LOGGER.info("took time for prefetch is [{}] nanos", Instant.now().getNano() - startTime.getNano());
+
+        currentReaderIndex = -1;
+        currentReaderContext = null;
         CheckedBiConsumer<Integer, FieldsVisitor, IOException> fieldReader = null;
-        boolean hasSequentialDocs = hasSequentialDocs(docs);
         for (int index = 0; index < context.docIdsToLoadSize(); index++) {
             if (context.isCancelled()) {
                 throw new TaskCancelledException("cancelled task with reason: " + context.getTask().getReasonCancelled());
@@ -465,8 +518,7 @@ public class FetchPhase {
 
         int nestedDocId = nestedTopDocId - subReaderContext.docBase;
 
-        if (context instanceof InnerHitsContext.InnerHitSubContext) {
-            InnerHitsContext.InnerHitSubContext innerHitsContext = (InnerHitsContext.InnerHitSubContext) context;
+        if (context instanceof InnerHitsContext.InnerHitSubContext innerHitsContext) {
             rootId = innerHitsContext.getId();
 
             if (needSource) {
