@@ -113,6 +113,7 @@ public class FetchPhase {
     public void execute(SearchContext context, String profileDescription) {
         FetchProfileBreakdown breakdown = null;
         FetchProfiler fetchProfiler = null;
+        long startTime = System.nanoTime();
         if (context.getProfilers() != null) {
             fetchProfiler = context.getProfilers().getFetchProfiler();
             if (context.docIdsToLoadSize() > 0) {
@@ -244,6 +245,8 @@ public class FetchPhase {
         if (fetchProfiler != null) {
             fetchProfiler.endFetchPhase(profileDescription);
         }
+        long durationMs = (System.nanoTime() - startTime) / 1_000_000;
+        LOGGER.info("took time for fetchPhase is [{}] millis", durationMs);
     }
 
     List<Tuple<FetchSubPhaseProcessor, FetchSubPhase>> getProcessors(SearchShardTarget target, FetchContext context) {
